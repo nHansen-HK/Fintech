@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h2>Stock Data Dashboard</h2>
+<form method="get" action="/dashboard" class="mb-4">
+    <div class="input-group mb-2">
+        <input type="text" class="form-control" name="symbol" placeholder="Enter ticker symbol (e.g. AAPL)" value="{{ request.args.get('symbol', '') }}">
+    </div>
+    <div class="input-group mb-2">
+        <input type="date" class="form-control" name="start_date" placeholder="Start date" value="{{ request.args.get('start_date', '') }}">
+        <input type="date" class="form-control" name="end_date" placeholder="End date" value="{{ request.args.get('end_date', '') }}">
+    </div>
+    <button class="btn btn-primary" type="submit">Search</button>
+</form>
+{% if status %}
+    <div class="alert alert-info">{{ status }}</div>
+{% endif %}
+{% if data %}
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Open</th>
+                <th>High</th>
+                <th>Low</th>
+                <th>Close</th>
+                <th>Volume</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in data %}
+            <tr>
+                <td>{{ row.date }}</td>
+                <td>{{ row.open }}</td>
+                <td>{{ row.high }}</td>
+                <td>{{ row.low }}</td>
+                <td>{{ row.close }}</td>
+                <td>{{ row.volume }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+{% endif %}
+{% endblock %}
