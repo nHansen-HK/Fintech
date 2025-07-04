@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -101,20 +101,137 @@ def get_data(symbol):
 
 @app.route('/dashboard', methods=['GET'])
 def dashboard():
-    symbol = request.args.get('symbol', '').upper().strip()
-    start_date = request.args.get('start_date', '')
-    end_date = request.args.get('end_date', '')
+    symbol: str = request.args.get('symbol', '').upper().strip()
+    start_date: str = request.args.get('start_date', '')
+    end_date: str = request.args.get('end_date', '')
     data = None
     status = None
     if symbol:
-        records = PriceData.query.filter_by(symbol=symbol).order_by(PriceData.date).all()
+        query = PriceData.query.filter(PriceData.symbol == symbol)
+        if start_date:
+            try:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                query = query.filter(PriceData.date >= start_date_obj)
+            except ValueError:
+                status = 'Invalid start date format.'
+        if end_date:
+            try:
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                query = query.filter(PriceData.date <= end_date_obj)
+            except ValueError:
+                status = 'Invalid end date format.'
+        records = query.order_by(PriceData.date).all()
         if records:
             data = [r.as_dict() for r in records]
             period = f"{data[0]['date']} to {data[-1]['date']}"
             status = f"Showing data for {symbol} from {period}."
         else:
-            status = f"{symbol} not in database."
-    return render_template('dashboard.html', data=data, status=status)
+            if not status:
+                status = f"{symbol} not in database or no data in selected range."
+    return render_template('dashboard.html', data=data, status=status, symbol=symbol, start_date=start_date, end_date=end_date)
+
+@app.route('/fetch_single_timerange', methods=['POST'])
+def fetch_single_timerange():
+    symbol = request.form.get('symbol', '').upper().strip()
+    start_date = request.form.get('start_date', '')
+    end_date = request.form.get('end_date', '')
+    if not symbol or not start_date or not end_date:
+        return jsonify({'status': 'Invalid input. Please provide symbol, start date, and end date.'}), 400
+    try:
+        start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        if start_date_obj > end_date_obj:
+            return jsonify({'status': 'Start date cannot be after end date.'}), 400
+        df = yf.download(symbol, start=start_date, end=end_date, progress=False)
+        if df is not None and not df.empty:
+            for idx, row in df.iterrows():
+                price = PriceData()
+                price.symbol = symbol
+                price.date = pd.Timestamp(str(idx)).date()
+                def get_scalar(val):
+                    if val is None or pd.isna(val):
+                        return None
+                    if np.isscalar(val):
+                        return val
+                    try:
+                        return float(val.item())
+                    except Exception:
+                        try:
+                            return float(val.values[0])
+                        except Exception:
+                            return None
+                price.open_price = get_scalar(row.get('Open', None))
+                price.high_price = get_scalar(row.get('High', None))
+                price.low_price = get_scalar(row.get('Low', None))
+                price.close_price = get_scalar(row.get('Close', None))
+                v = get_scalar(row.get('Volume', None))
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    price.volume = int(v)
+                else:
+                    price.volume = None
+                db.session.merge(price)
+            db.session.commit()
+            status = f"Fetched and stored data for {symbol} from {start_date} to {end_date}."
+        else:
+            status = f"No data found for {symbol} in the selected range."
+    except Exception as e:
+        db.session.rollback()
+        status = f"Error fetching {symbol}: {e}"
+    # After fetching, redirect to dashboard with the same parameters
+    return redirect(url_for('dashboard', symbol=symbol, start_date=start_date, end_date=end_date))
+
+@app.route('/fetch_single', methods=['POST'])
+def fetch_single():
+    symbol = request.form.get('symbol', '').upper().strip()
+    start_date = request.form.get('start_date', '')
+    end_date = request.form.get('end_date', '')
+    if not symbol or not start_date or not end_date:
+        return render_template('dashboard.html', data=None, status='Invalid input. Please provide symbol, start date, and end date.', symbol=symbol, start_date=start_date, end_date=end_date)
+    try:
+        start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+        if start_date_obj > end_date_obj:
+            return render_template('dashboard.html', data=None, status='Start date cannot be after end date.', symbol=symbol, start_date=start_date, end_date=end_date)
+        df = yf.download(symbol, start=start_date, end=end_date, progress=False)
+        if df is not None and not df.empty:
+            for idx, row in df.iterrows():
+                price = PriceData.query.filter_by(symbol=symbol, date=pd.Timestamp(str(idx)).date()).first()
+                if not price:
+                    price = PriceData()
+                    price.symbol = symbol
+                    price.date = pd.Timestamp(str(idx)).date()
+                def get_scalar(val):
+                    if val is None or pd.isna(val):
+                        return None
+                    if np.isscalar(val):
+                        return val
+                    try:
+                        return float(val.item())
+                    except Exception:
+                        try:
+                            return float(val.values[0])
+                        except Exception:
+                            return None
+                price.open_price = get_scalar(row.get('Open', None))
+                price.high_price = get_scalar(row.get('High', None))
+                price.low_price = get_scalar(row.get('Low', None))
+                price.close_price = get_scalar(row.get('Close', None))
+                v = get_scalar(row.get('Volume', None))
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    price.volume = int(v)
+                else:
+                    price.volume = None
+                db.session.merge(price)
+            db.session.commit()
+            status = f"Fetched and stored data for {symbol} from {start_date} to {end_date}."
+        else:
+            status = f"No data found for {symbol} in the selected range."
+    except Exception as e:
+        db.session.rollback()
+        status = f"Error fetching {symbol}: {e}"
+    # After fetching, redirect to dashboard with the same parameters
+    return redirect(url_for('dashboard', symbol=symbol, start_date=start_date, end_date=end_date))
 
 if __name__ == '__main__':
     app.run(debug=True)

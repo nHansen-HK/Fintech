@@ -4,16 +4,24 @@
 <h2>Stock Data Dashboard</h2>
 <form method="get" action="/dashboard" class="mb-4">
     <div class="input-group mb-2">
-        <input type="text" class="form-control" name="symbol" placeholder="Enter ticker symbol (e.g. AAPL)" value="{{ request.args.get('symbol', '') }}">
+        <input type="text" class="form-control" name="symbol" placeholder="Enter ticker symbol (e.g. AAPL)" value="{{ symbol|default('') }}">
     </div>
     <div class="input-group mb-2">
-        <input type="date" class="form-control" name="start_date" placeholder="Start date" value="{{ request.args.get('start_date', '') }}">
-        <input type="date" class="form-control" name="end_date" placeholder="End date" value="{{ request.args.get('end_date', '') }}">
+        <input type="date" class="form-control" name="start_date" placeholder="Start date" value="{{ start_date|default('') }}">
+        <input type="date" class="form-control" name="end_date" placeholder="End date" value="{{ end_date|default('') }}">
     </div>
     <button class="btn btn-primary" type="submit">Search</button>
 </form>
 {% if status %}
     <div class="alert alert-info">{{ status }}</div>
+    {% if 'not in database' in status or 'no data' in status or 'Invalid' in status or 'Error' in status %}
+        <form method="post" action="/fetch_single" class="mt-2">
+            <input type="hidden" name="symbol" value="{{ symbol|default('') }}">
+            <input type="hidden" name="start_date" value="{{ start_date|default('') }}">
+            <input type="hidden" name="end_date" value="{{ end_date|default('') }}">
+            <button class="btn btn-warning" type="submit">Fetch Data for This Symbol and Date Range</button>
+        </form>
+    {% endif %}
 {% endif %}
 {% if data %}
     <table class="table table-striped">
